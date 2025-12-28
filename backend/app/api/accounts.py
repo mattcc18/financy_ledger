@@ -67,12 +67,12 @@ async def create_account(account: AccountCreateRequest, current_user: dict = Dep
 
 
 @router.put("/{account_id}", response_model=AccountResponse)
-async def update_account(account_id: int, account: AccountUpdateRequest):
-    """Update an existing account."""
+async def update_account(account_id: int, account: AccountUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Update an existing account (only if owned by current user)."""
     try:
         # Build dynamic update query
         updates = []
-        params = {"account_id": account_id}
+        params = {"account_id": account_id, "user_id": current_user["user_id"]}
         
         if account.account_name is not None:
             updates.append("account_name = :account_name")
@@ -95,8 +95,8 @@ async def update_account(account_id: int, account: AccountUpdateRequest):
         
         query = text(f"""
             UPDATE accounts.list
-            SET {', '.join(updates)}
-            WHERE account_id = :account_id
+            SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+            WHERE account_id = :account_id AND user_id = :user_id
             RETURNING account_id, account_name, account_type, institution, currency_code
         """)
         
@@ -106,7 +106,7 @@ async def update_account(account_id: int, account: AccountUpdateRequest):
             row = result.fetchone()
             
             if not row:
-                raise HTTPException(status_code=404, detail=f"Account with ID {account_id} not found")
+                raise HTTPException(status_code=404, detail=f"Account with ID {account_id} not found or you don't have permission")
             
             return AccountResponse(
                 account_id=row[0],
@@ -122,20 +122,34 @@ async def update_account(account_id: int, account: AccountUpdateRequest):
 
 
 @router.delete("/{account_id}")
-async def delete_account(account_id: int):
-    """Delete an account."""
+async def delete_account(account_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete an account (only if owned by current user)."""
     try:
-        # Check if account exists
-        check_query = text("SELECT account_id FROM accounts.list WHERE account_id = :account_id")
-        
         with engine.connect() as conn:
-            result = conn.execute(check_query, {"account_id": account_id})
+            # Check if account exists and belongs to user
+            check_query = text("""
+                SELECT account_id FROM accounts.list 
+                WHERE account_id = :account_id AND user_id = :user_id
+            """)
+            result = conn.execute(check_query, {
+                "account_id": account_id,
+                "user_id": current_user["user_id"]
+            })
             if not result.fetchone():
-                raise HTTPException(status_code=404, detail=f"Account with ID {account_id} not found")
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Account with ID {account_id} not found or you don't have permission"
+                )
             
             # Delete the account (cascade will handle related transactions)
-            delete_query = text("DELETE FROM accounts.list WHERE account_id = :account_id")
-            conn.execute(delete_query, {"account_id": account_id})
+            delete_query = text("""
+                DELETE FROM accounts.list 
+                WHERE account_id = :account_id AND user_id = :user_id
+            """)
+            conn.execute(delete_query, {
+                "account_id": account_id,
+                "user_id": current_user["user_id"]
+            })
             conn.commit()
             
             return {"message": f"Account {account_id} deleted successfully"}
