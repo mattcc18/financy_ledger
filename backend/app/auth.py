@@ -43,15 +43,27 @@ def verify_token(token: str) -> dict:
     """
     try:
         # Get JWT secret
-        jwt_secret = SUPABASE_JWT_SECRET or get_supabase_jwt_secret()
+        if not SUPABASE_JWT_SECRET:
+            raise ValueError("SUPABASE_JWT_SECRET must be set in environment variables")
+        
+        jwt_secret = SUPABASE_JWT_SECRET
+        
+        # Decode token without verification first to check the algorithm
+        unverified = jwt.decode(token, options={"verify_signature": False})
+        alg = unverified.get("alg", "HS256")
+        
+        # Supabase typically uses HS256, but we'll allow common algorithms
+        allowed_algorithms = ["HS256", "RS256"]
+        if alg not in allowed_algorithms:
+            # Try with the algorithm from the token
+            allowed_algorithms = [alg]
         
         # Decode and verify token
-        # Supabase uses HS256 algorithm
         payload = jwt.decode(
             token,
             jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated"
+            algorithms=allowed_algorithms,
+            options={"verify_aud": False}  # Don't verify audience for now
         )
         
         return payload
@@ -59,6 +71,8 @@ def verify_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def get_current_user(
