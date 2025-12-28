@@ -1,19 +1,25 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.db.database import engine
 from app.models.schemas import AccountResponse, AccountCreateRequest, AccountUpdateRequest
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
 @router.get("", response_model=list[AccountResponse])
-async def get_all_accounts():
-    """Get all accounts."""
+async def get_all_accounts(current_user: dict = Depends(get_current_user)):
+    """Get all accounts for the current user."""
     try:
-        query = text("SELECT account_id, account_name, account_type, institution, currency_code FROM accounts.list ORDER BY account_name")
+        query = text("""
+            SELECT account_id, account_name, account_type, institution, currency_code 
+            FROM accounts.list 
+            WHERE user_id = :user_id
+            ORDER BY account_name
+        """)
         
         with engine.connect() as conn:
-            result = conn.execute(query)
+            result = conn.execute(query, {"user_id": current_user["user_id"]})
             accounts = []
             for row in result:
                 accounts.append(AccountResponse(
@@ -29,12 +35,12 @@ async def get_all_accounts():
 
 
 @router.post("", response_model=AccountResponse)
-async def create_account(account: AccountCreateRequest):
-    """Create a new account."""
+async def create_account(account: AccountCreateRequest, current_user: dict = Depends(get_current_user)):
+    """Create a new account for the current user."""
     try:
         query = text("""
-            INSERT INTO accounts.list (account_name, account_type, institution, currency_code)
-            VALUES (:account_name, :account_type, :institution, :currency_code)
+            INSERT INTO accounts.list (account_name, account_type, institution, currency_code, user_id)
+            VALUES (:account_name, :account_type, :institution, :currency_code, :user_id)
             RETURNING account_id, account_name, account_type, institution, currency_code
         """)
         
@@ -43,7 +49,8 @@ async def create_account(account: AccountCreateRequest):
                 "account_name": account.account_name,
                 "account_type": account.account_type,
                 "institution": account.institution,
-                "currency_code": account.currency_code.upper()
+                "currency_code": account.currency_code.upper(),
+                "user_id": current_user["user_id"]
             })
             conn.commit()
             row = result.fetchone()

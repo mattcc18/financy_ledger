@@ -1,0 +1,117 @@
+"""
+Authentication module for Supabase Auth integration.
+"""
+import os
+import jwt
+from typing import Optional
+from fastapi import HTTPException, Depends, Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import httpx
+
+# Supabase configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+
+# Security scheme
+security = HTTPBearer(auto_error=False)
+
+
+async def get_supabase_jwt_secret() -> str:
+    """
+    Get JWT secret from Supabase.
+    If SUPABASE_JWT_SECRET is set, use it. Otherwise, fetch from Supabase.
+    """
+    if SUPABASE_JWT_SECRET:
+        return SUPABASE_JWT_SECRET
+    
+    if not SUPABASE_URL:
+        raise ValueError("SUPABASE_URL must be set if SUPABASE_JWT_SECRET is not provided")
+    
+    # Try to get JWT secret from Supabase (this is a fallback)
+    # In production, you should set SUPABASE_JWT_SECRET as an environment variable
+    # You can find it in Supabase Dashboard -> Settings -> API -> JWT Secret
+    raise ValueError(
+        "SUPABASE_JWT_SECRET must be set. "
+        "Get it from Supabase Dashboard -> Settings -> API -> JWT Secret"
+    )
+
+
+def verify_token(token: str) -> dict:
+    """
+    Verify Supabase JWT token and return the payload.
+    """
+    try:
+        # Get JWT secret
+        jwt_secret = SUPABASE_JWT_SECRET or get_supabase_jwt_secret()
+        
+        # Decode and verify token
+        # Supabase uses HS256 algorithm
+        payload = jwt.decode(
+            token,
+            jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated"
+        )
+        
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> dict:
+    """
+    Dependency to get the current authenticated user from JWT token.
+    Returns the user payload from the JWT token.
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = credentials.credentials
+    payload = verify_token(token)
+    
+    # Extract user ID from payload
+    user_id = payload.get("sub")  # Supabase uses "sub" for user ID
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token: no user ID")
+    
+    return {
+        "user_id": user_id,
+        "email": payload.get("email"),
+        "payload": payload
+    }
+
+
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[dict]:
+    """
+    Optional authentication - returns user if token is valid, None otherwise.
+    Useful for endpoints that work with or without authentication.
+    """
+    if not credentials:
+        return None
+    
+    try:
+        token = credentials.credentials
+        payload = verify_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        
+        return {
+            "user_id": user_id,
+            "email": payload.get("email"),
+            "payload": payload
+        }
+    except HTTPException:
+        return None
+
