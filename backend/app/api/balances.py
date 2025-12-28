@@ -1,22 +1,28 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy import text
 import pandas as pd
 from typing import Optional
 from datetime import date as date_class
 from app.db.database import engine
 from app.models.schemas import BalanceResponse, BalanceHistoryResponse
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/balances", tags=["balances"])
 
 
-def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: Optional[date_class] = None):
+def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: Optional[date_class] = None, user_id: Optional[str] = None):
     """
     Loads balances by aggregating transactions, converts non-EUR holdings to a standard 'balance_eur',
     and then converts 'balance_eur' to the selected target currency.
+    Filters by user_id if provided.
     """
     date_filter = ""
     if balance_date:
         date_filter = f"AND t.transaction_date <= '{balance_date}'"
+    
+    user_filter = ""
+    if user_id:
+        user_filter = f"AND t.user_id = '{user_id}' AND a.user_id = '{user_id}'"
     
     query = f"""
     WITH account_balances AS (
@@ -25,7 +31,7 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
             SUM(t.amount) as amount,
             MAX(t.transaction_date) as balance_date
         FROM transactions.ledger t
-        WHERE 1=1 {date_filter}
+        WHERE 1=1 {date_filter} {user_filter}
         GROUP BY t.account_id
     )
     SELECT
@@ -98,9 +104,10 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
 @router.get("", response_model=list[BalanceResponse])
 async def get_balances(
     currency: str = 'EUR',
-    date: Optional[str] = Query(None, description="Date in format YYYY-MM-DD")
+    date: Optional[str] = Query(None, description="Date in format YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get all account balances aggregated from transactions."""
+    """Get all account balances for the current user, aggregated from transactions."""
     try:
         parsed_date = None
         if date:
@@ -109,7 +116,11 @@ async def get_balances(
             except ValueError:
                 raise HTTPException(status_code=422, detail="Invalid date format. Use YYYY-MM-DD")
         
-        df = load_balances_from_transactions(target_currency=currency, balance_date=parsed_date)
+        df = load_balances_from_transactions(
+            target_currency=currency, 
+            balance_date=parsed_date,
+            user_id=current_user["user_id"]
+        )
         
         if df.empty:
             return []
@@ -142,7 +153,8 @@ async def get_balances(
 @router.get("/history/{account_name}", response_model=list[BalanceHistoryResponse])
 async def get_account_balance_history(
     account_name: str,
-    currency: str = Query('EUR', description="Target currency for conversion")
+    currency: str = Query('EUR', description="Target currency for conversion"),
+    current_user: dict = Depends(get_current_user)
 ):
     """Get balance history for a specific account."""
     try:
@@ -163,7 +175,9 @@ async def get_account_balance_history(
                 ) as running_balance
             FROM transactions.ledger t
             JOIN accounts.list a ON t.account_id = a.account_id
-            WHERE a.account_name = :account_name
+            WHERE a.account_name = :account_name 
+              AND t.user_id = :user_id 
+              AND a.user_id = :user_id
         ),
         daily_balances AS (
             SELECT DISTINCT ON (transaction_date)
@@ -196,7 +210,10 @@ async def get_account_balance_history(
         """)
         
         with engine.connect() as conn:
-            df = pd.read_sql(query, conn, params={"account_name": account_name})
+            df = pd.read_sql(query, conn, params={
+                "account_name": account_name,
+                "user_id": current_user["user_id"]
+            })
             
             if df.empty:
                 return []
