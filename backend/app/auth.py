@@ -37,76 +37,53 @@ async def get_supabase_jwt_secret() -> str:
     )
 
 
-def verify_token(token: str) -> dict:
+async def verify_token(token: str) -> dict:
     """
-    Verify Supabase JWT token and return the payload.
-    Supabase uses HS256 algorithm with the JWT secret.
+    Verify Supabase JWT token by calling Supabase API.
+    This works with both legacy HS256 tokens and new ES256 tokens.
     """
     try:
-        # Get JWT secret
-        if not SUPABASE_JWT_SECRET:
-            raise ValueError("SUPABASE_JWT_SECRET must be set in environment variables")
+        if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+            raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set")
         
-        jwt_secret = SUPABASE_JWT_SECRET
-        
-        # Get the algorithm from token header without verification
-        try:
-            unverified_header = jwt.get_unverified_header(token)
-            alg = unverified_header.get("alg", "HS256")
-            print(f"DEBUG: Token algorithm from header: {alg}")  # Debug log
-        except Exception as e:
-            # If we can't read the header, default to HS256
-            print(f"DEBUG: Could not read token header: {e}")  # Debug log
-            alg = "HS256"
-        
-        # Supabase tokens use HS256, so we'll only allow that
-        # If the token uses a different algorithm, it's not a valid Supabase token
-        if alg.upper() != "HS256":
-            print(f"DEBUG: Token uses unsupported algorithm: {alg}")  # Debug log
-            raise HTTPException(
-                status_code=401,
-                detail=f"Unsupported token algorithm: {alg}. Supabase tokens use HS256."
-            )
-        
-        # Decode and verify token with HS256
-        try:
-            payload = jwt.decode(
-                token,
-                jwt_secret,
-                algorithms=["HS256"],  # Only allow HS256 for Supabase
-                options={
-                    "verify_signature": True,
-                    "verify_exp": True,
-                    "verify_aud": False,  # Don't verify audience
-                    "verify_iss": False  # Don't verify issuer
+        # Verify token by calling Supabase's user endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{SUPABASE_URL}/auth/v1/user",
+                headers={
+                    "apikey": SUPABASE_ANON_KEY,
+                    "Authorization": f"Bearer {token}"
                 }
             )
-            print(f"DEBUG: Token verified successfully for user: {payload.get('sub')}")  # Debug log
-            return payload
-        except jwt.InvalidAlgorithmError as e:
-            print(f"DEBUG: InvalidAlgorithmError: {e}")  # Debug log
-            raise
-        except jwt.InvalidSignatureError as e:
-            print(f"DEBUG: InvalidSignatureError: {e}")  # Debug log
-            raise
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidAlgorithmError as e:
-        raise HTTPException(
-            status_code=401, 
-            detail=f"Invalid token algorithm: {str(e)}. Token must use HS256 algorithm."
-        )
-    except jwt.InvalidSignatureError:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token signature. Make sure SUPABASE_JWT_SECRET is correct."
-        )
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+            
+            if response.status_code != 200:
+                if response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="Invalid or expired token")
+                error_data = response.json() if response.content else {}
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=error_data.get("message", "Token verification failed")
+                )
+            
+            user_data = response.json()
+            
+            # Extract user ID from the user data
+            user_id = user_data.get("id")
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Invalid token: no user ID")
+            
+            # Return a payload-like structure for compatibility
+            return {
+                "sub": user_id,
+                "email": user_data.get("email"),
+                "user_metadata": user_data.get("user_metadata", {}),
+                "app_metadata": user_data.get("app_metadata", {}),
+                "raw_user": user_data  # Include full user data
+            }
     except HTTPException:
         raise
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to verify token with Supabase: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Token verification error: {str(e)}")
 
@@ -126,7 +103,7 @@ async def get_current_user(
         )
     
     token = credentials.credentials
-    payload = verify_token(token)
+    payload = await verify_token(token)
     
     # Extract user ID from payload
     user_id = payload.get("sub")  # Supabase uses "sub" for user ID
@@ -152,7 +129,7 @@ async def get_current_user_optional(
     
     try:
         token = credentials.credentials
-        payload = verify_token(token)
+        payload = await verify_token(token)
         user_id = payload.get("sub")
         if not user_id:
             return None
