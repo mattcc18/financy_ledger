@@ -53,32 +53,42 @@ def verify_token(token: str) -> dict:
         try:
             unverified_header = jwt.get_unverified_header(token)
             alg = unverified_header.get("alg", "HS256")
-        except Exception:
+            print(f"DEBUG: Token algorithm from header: {alg}")  # Debug log
+        except Exception as e:
             # If we can't read the header, default to HS256
+            print(f"DEBUG: Could not read token header: {e}")  # Debug log
             alg = "HS256"
         
         # Supabase tokens use HS256, so we'll only allow that
         # If the token uses a different algorithm, it's not a valid Supabase token
-        if alg not in ["HS256", "hs256"]:
+        if alg.upper() != "HS256":
+            print(f"DEBUG: Token uses unsupported algorithm: {alg}")  # Debug log
             raise HTTPException(
                 status_code=401,
                 detail=f"Unsupported token algorithm: {alg}. Supabase tokens use HS256."
             )
         
         # Decode and verify token with HS256
-        payload = jwt.decode(
-            token,
-            jwt_secret,
-            algorithms=["HS256"],  # Only allow HS256 for Supabase
-            options={
-                "verify_signature": True,
-                "verify_exp": True,
-                "verify_aud": False,  # Don't verify audience
-                "verify_iss": False  # Don't verify issuer
-            }
-        )
-        
-        return payload
+        try:
+            payload = jwt.decode(
+                token,
+                jwt_secret,
+                algorithms=["HS256"],  # Only allow HS256 for Supabase
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "verify_aud": False,  # Don't verify audience
+                    "verify_iss": False  # Don't verify issuer
+                }
+            )
+            print(f"DEBUG: Token verified successfully for user: {payload.get('sub')}")  # Debug log
+            return payload
+        except jwt.InvalidAlgorithmError as e:
+            print(f"DEBUG: InvalidAlgorithmError: {e}")  # Debug log
+            raise
+        except jwt.InvalidSignatureError as e:
+            print(f"DEBUG: InvalidSignatureError: {e}")  # Debug log
+            raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidAlgorithmError as e:
