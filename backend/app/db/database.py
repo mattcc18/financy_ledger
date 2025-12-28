@@ -33,17 +33,27 @@ if SUPABASE_DB_URL:
         parsed = urlparse(SUPABASE_DB_URL)
         # Reconstruct with properly encoded password
         if parsed.password:
-            # Password might already be encoded, but we'll ensure it's properly encoded
-            encoded_password = quote_plus(parsed.password, safe='')
+            # Check if password is already URL-encoded (contains %)
+            if '%' in parsed.password:
+                # Already encoded, use as-is
+                encoded_password = parsed.password
+            else:
+                # Not encoded, encode it now
+                encoded_password = quote_plus(parsed.password, safe='')
+            
             # Reconstruct the URL with encoded password
+            netloc = f"{parsed.username}:{encoded_password}@{parsed.hostname}"
+            if parsed.port:
+                netloc += f":{parsed.port}"
+            
             connection_string = urlunparse((
                 parsed.scheme,
-                f"{parsed.username}:{encoded_password}@{parsed.hostname}:{parsed.port or ''}",
+                netloc,
                 parsed.path,
                 parsed.params,
                 parsed.query,
                 parsed.fragment
-            )).replace('://:', '://')  # Fix double colon if port is empty
+            ))
         else:
             connection_string = SUPABASE_DB_URL
     except Exception as e:
