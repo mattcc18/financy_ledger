@@ -20,9 +20,13 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
     if balance_date:
         date_filter = f"AND t.transaction_date <= '{balance_date}'"
     
-    user_filter = ""
+    user_filter_transactions = ""
     if user_id:
-        user_filter = f"AND t.user_id = '{user_id}' AND a.user_id = '{user_id}'"
+        user_filter_transactions = f"AND t.user_id = '{user_id}'"
+    
+    user_filter_accounts = ""
+    if user_id:
+        user_filter_accounts = f"AND a.user_id = '{user_id}'"
     
     query = f"""
     WITH account_balances AS (
@@ -31,7 +35,7 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
             SUM(t.amount) as amount,
             MAX(t.transaction_date) as balance_date
         FROM transactions.ledger t
-        WHERE 1=1 {date_filter} {user_filter}
+        WHERE 1=1 {date_filter} {user_filter_transactions}
         GROUP BY t.account_id
     )
     SELECT
@@ -44,6 +48,7 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
         COALESCE(r_te.rate_to_eur, 1.0) AS rate_to_eur
     FROM account_balances ab
     JOIN accounts.list a ON ab.account_id = a.account_id
+    WHERE 1=1 {user_filter_accounts}
     LEFT JOIN LATERAL (
         SELECT 1.0 / r_te.rate AS rate_to_eur
         FROM exchange_rates.rate_history r_te
