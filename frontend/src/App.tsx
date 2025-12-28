@@ -1,15 +1,18 @@
-import React, { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import { ThemeProvider as MUIThemeProvider, createTheme } from '@mui/material/styles';
 import { Box, CircularProgress } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { DashboardProvider } from './contexts/DashboardContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import NavBar from './components/NavBar';
 import Footer from './components/Footer';
 import AccountsPage from './pages/AccountsPage';
 import AccountDetailsPage from './pages/AccountDetailsPage';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
 
 // Import Dashboard directly (not lazy)
 import Dashboard from './pages/Dashboard';
@@ -31,40 +34,80 @@ const theme = createTheme({
   },
 });
 
+// Protected Route Component
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth();
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, loading, navigate]);
+
+  if (loading) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: '100vh',
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  return isAuthenticated ? <>{children}</> : null;
+};
+
 function App() {
   return (
     <ErrorBoundary>
       <MUIThemeProvider theme={theme}>
         <CssBaseline />
         <ThemeProvider>
-          <DashboardProvider>
-            <Router>
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  minHeight: '100vh',
-                }}
-                className="bg-gradient-to-br from-slate-50 via-white to-slate-50"
-              >
-                <NavBar />
-                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', pt: { xs: 7, sm: 8 } }}>
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/accounts" element={<AccountsPage />} />
-                    <Route path="/account/:accountId" element={<AccountDetailsPage />} />
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/data-entry" element={<DataEntry />} />
-                    <Route path="/budget" element={<Budget />} />
-                    <Route path="/expenses" element={<ExpenseTracking />} />
-                    <Route path="/goals" element={<Goals />} />
-                    <Route path="/csv-import" element={<CSVImport />} />
-                  </Routes>
-                </Box>
-                <Footer />
-              </Box>
-            </Router>
-          </DashboardProvider>
+          <AuthProvider>
+            <DashboardProvider>
+              <Router>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/signup" element={<Signup />} />
+                  <Route
+                    path="/*"
+                    element={
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          minHeight: '100vh',
+                        }}
+                        className="bg-gradient-to-br from-slate-50 via-white to-slate-50"
+                      >
+                        <NavBar />
+                        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', pt: { xs: 7, sm: 8 } }}>
+                          <Routes>
+                            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                            <Route path="/accounts" element={<ProtectedRoute><AccountsPage /></ProtectedRoute>} />
+                            <Route path="/account/:accountId" element={<ProtectedRoute><AccountDetailsPage /></ProtectedRoute>} />
+                            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                            <Route path="/data-entry" element={<ProtectedRoute><DataEntry /></ProtectedRoute>} />
+                            <Route path="/budget" element={<ProtectedRoute><Budget /></ProtectedRoute>} />
+                            <Route path="/expenses" element={<ProtectedRoute><ExpenseTracking /></ProtectedRoute>} />
+                            <Route path="/goals" element={<ProtectedRoute><Goals /></ProtectedRoute>} />
+                            <Route path="/csv-import" element={<ProtectedRoute><CSVImport /></ProtectedRoute>} />
+                          </Routes>
+                        </Box>
+                        <Footer />
+                      </Box>
+                    }
+                  />
+                </Routes>
+              </Router>
+            </DashboardProvider>
+          </AuthProvider>
         </ThemeProvider>
       </MUIThemeProvider>
     </ErrorBoundary>

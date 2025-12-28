@@ -118,12 +118,21 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   const url = API_BASE_URL ? `${API_BASE_URL}${endpoint}` : endpoint;
   console.log('API Call:', options?.method || 'GET', url, options?.body);
   
+  // Get auth token from localStorage
+  const token = localStorage.getItem('auth_token');
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options?.headers,
+  };
+  
+  // Add auth token if available
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -471,6 +480,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(transactions),
     });
+  },
+
+  // Authentication
+  signUp: async (email: string, password: string): Promise<{ access_token: string; user: any }> => {
+    return fetchAPI<{ access_token: string; user: any }>('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  signIn: async (email: string, password: string): Promise<{ access_token: string; user: any }> => {
+    return fetchAPI<{ access_token: string; user: any }>('/api/auth/signin', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  getCurrentUser: async (): Promise<{ user_id: string; email?: string }> => {
+    return fetchAPI<{ user_id: string; email?: string }>('/api/auth/me');
   },
 };
 

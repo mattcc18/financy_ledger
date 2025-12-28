@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { AppBar, Toolbar, Typography, Box, IconButton, Menu, MenuItem, Button, useMediaQuery, useTheme as useMUITheme } from '@mui/material';
-import { Palette as PaletteIcon } from '@mui/icons-material';
-import { Link, useLocation } from 'react-router-dom';
+import { Palette as PaletteIcon, Logout as LogoutIcon } from '@mui/icons-material';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getNavPalette, PALETTE_TEXT_COLORS } from '../config/colorPalettes';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const NavBar: React.FC = () => {
   const { colorPalette, setColorPalette } = useTheme();
+  const { logout, isAuthenticated, user } = useAuth();
+  const navigate = useNavigate();
   const navColors = getNavPalette(colorPalette);
   const muiTheme = useMUITheme();
   const isMobile = useMediaQuery(muiTheme.breakpoints.down('md'));
@@ -14,6 +17,11 @@ const NavBar: React.FC = () => {
   const [themeAnchorEl, setThemeAnchorEl] = useState<null | HTMLElement>(null);
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   const handleThemeClick = (event: React.MouseEvent<HTMLElement>) => {
     setThemeAnchorEl(event.currentTarget);
@@ -212,6 +220,37 @@ const NavBar: React.FC = () => {
             >
               CSV Import
             </Button>
+
+            {/* User Email (if authenticated) */}
+            {isAuthenticated && user?.email && (
+              <Typography
+                sx={{
+                  color: navColors.button_color,
+                  fontFamily: 'Inter, -apple-system, sans-serif',
+                  fontSize: '0.875rem',
+                  mr: 2,
+                }}
+              >
+                {user.email}
+              </Typography>
+            )}
+
+            {/* Logout Button */}
+            {isAuthenticated && (
+              <IconButton
+                onClick={handleLogout}
+                sx={{
+                  color: navColors.title_color,
+                  mr: 1,
+                  '&:hover': {
+                    backgroundColor: navColors.button_hover,
+                  },
+                }}
+                aria-label="logout"
+              >
+                <LogoutIcon />
+              </IconButton>
+            )}
 
             {/* Theme Icon Button */}
             <IconButton
