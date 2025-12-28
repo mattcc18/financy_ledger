@@ -49,50 +49,52 @@ def verify_token(token: str) -> dict:
         
         jwt_secret = SUPABASE_JWT_SECRET
         
-        # First, decode without verification to see what algorithm is used
-        unverified_header = jwt.get_unverified_header(token)
-        alg = unverified_header.get("alg", "HS256")
-        
-        # Supabase uses HS256, but we'll try to use whatever algorithm is in the token
-        # If it's not HS256, we might need to handle it differently
+        # Get the algorithm from token header without verification
         try:
-            # Try with HS256 first (most common for Supabase)
-            payload = jwt.decode(
-                token,
-                jwt_secret,
-                algorithms=["HS256"],
-                options={
-                    "verify_signature": True,
-                    "verify_exp": True,
-                    "verify_aud": False,  # Don't verify audience
-                    "verify_iss": False  # Don't verify issuer
-                }
+            unverified_header = jwt.get_unverified_header(token)
+            alg = unverified_header.get("alg", "HS256")
+        except Exception:
+            # If we can't read the header, default to HS256
+            alg = "HS256"
+        
+        # Supabase tokens use HS256, so we'll only allow that
+        # If the token uses a different algorithm, it's not a valid Supabase token
+        if alg not in ["HS256", "hs256"]:
+            raise HTTPException(
+                status_code=401,
+                detail=f"Unsupported token algorithm: {alg}. Supabase tokens use HS256."
             )
-            return payload
-        except jwt.InvalidAlgorithmError:
-            # If HS256 fails, try with the algorithm from the token header
-            # This handles cases where the token might use a different algorithm
-            payload = jwt.decode(
-                token,
-                jwt_secret,
-                algorithms=[alg] if alg else ["HS256"],
-                options={
-                    "verify_signature": True,
-                    "verify_exp": True,
-                    "verify_aud": False,
-                    "verify_iss": False
-                }
-            )
-            return payload
+        
+        # Decode and verify token with HS256
+        payload = jwt.decode(
+            token,
+            jwt_secret,
+            algorithms=["HS256"],  # Only allow HS256 for Supabase
+            options={
+                "verify_signature": True,
+                "verify_exp": True,
+                "verify_aud": False,  # Don't verify audience
+                "verify_iss": False  # Don't verify issuer
+            }
+        )
+        
+        return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidAlgorithmError as e:
         raise HTTPException(
             status_code=401, 
-            detail=f"Invalid token algorithm: {str(e)}. Make sure SUPABASE_JWT_SECRET is correct."
+            detail=f"Invalid token algorithm: {str(e)}. Token must use HS256 algorithm."
+        )
+    except jwt.InvalidSignatureError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token signature. Make sure SUPABASE_JWT_SECRET is correct."
         )
     except jwt.InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
