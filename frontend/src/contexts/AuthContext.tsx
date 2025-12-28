@@ -58,21 +58,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const response = await api.signIn(email, password);
       const { access_token, user: userData } = response;
       
+      if (!access_token) {
+        throw new Error('Login failed: No access token received. Please verify your email address.');
+      }
+      
       setToken(access_token);
       setUser({
-        user_id: userData.id || userData.user_id,
-        email: userData.email
+        user_id: userData.id || userData.user_id || userData.user?.id,
+        email: userData.email || userData.user?.email
       });
       
       // Store in localStorage
       localStorage.setItem('auth_token', access_token);
       localStorage.setItem('auth_user', JSON.stringify({
-        user_id: userData.id || userData.user_id,
-        email: userData.email
+        user_id: userData.id || userData.user_id || userData.user?.id,
+        email: userData.email || userData.user?.email
       }));
     } catch (error) {
       console.error('Login error:', error);
-      throw error;
+      // Re-throw with better error message
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Login failed. Please check your email and password.');
     }
   };
 
