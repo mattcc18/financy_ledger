@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy import text
 from app.db.database import engine
 from app.models.schemas import TransactionCreateRequest, TransactionUpdateRequest, TransactionResponse
+from app.auth import get_current_user
 from typing import Optional
 from datetime import date
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import Path
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
@@ -33,7 +34,7 @@ INCOME_CATEGORIES = [
 
 
 @router.post("", response_model=TransactionResponse)
-async def create_transaction(transaction: TransactionCreateRequest):
+async def create_transaction(transaction: TransactionCreateRequest, current_user: dict = Depends(get_current_user)):
     """
     Create a new transaction.
     
@@ -55,12 +56,21 @@ async def create_transaction(transaction: TransactionCreateRequest):
                 detail="Use /api/transfers endpoint for transfer transactions"
             )
         
-        # Validate account exists
-        check_account = text("SELECT account_id FROM accounts.list WHERE account_id = :account_id")
+        # Validate account exists and belongs to user
+        check_account = text("""
+            SELECT account_id FROM accounts.list 
+            WHERE account_id = :account_id AND user_id = :user_id
+        """)
         with engine.connect() as conn:
-            account_result = conn.execute(check_account, {"account_id": transaction.account_id}).fetchone()
+            account_result = conn.execute(check_account, {
+                "account_id": transaction.account_id,
+                "user_id": current_user["user_id"]
+            }).fetchone()
             if not account_result:
-                raise HTTPException(status_code=404, detail=f"Account ID {transaction.account_id} does not exist")
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Account ID {transaction.account_id} does not exist or you don't have permission"
+                )
             
             # Check if this is an Initial Balance transaction and if one already exists
             if transaction.category == 'Initial Balance':
@@ -88,8 +98,8 @@ async def create_transaction(transaction: TransactionCreateRequest):
             # Insert transaction
             insert_query = text("""
                 INSERT INTO transactions.ledger 
-                (account_id, amount, transaction_type, category, transaction_date, description, merchant, trip_id)
-                VALUES (:account_id, :amount, :transaction_type, :category, :transaction_date, :description, :merchant, :trip_id)
+                (account_id, amount, transaction_type, category, transaction_date, description, merchant, trip_id, user_id)
+                VALUES (:account_id, :amount, :transaction_type, :category, :transaction_date, :description, :merchant, :trip_id, :user_id)
                 RETURNING transaction_id, account_id, amount, transaction_type, category, transaction_date, description, merchant, trip_id
             """)
             
@@ -101,7 +111,8 @@ async def create_transaction(transaction: TransactionCreateRequest):
                 "transaction_date": transaction.transaction_date,
                 "description": transaction.description,
                 "merchant": transaction.merchant,
-                "trip_id": transaction.trip_id
+                "trip_id": transaction.trip_id,
+                "user_id": current_user["user_id"]
             })
             conn.commit()
             row = result.fetchone()
@@ -132,9 +143,10 @@ async def get_transactions(
     category: Optional[str] = Query(None, description="Filter by category"),
     currency_code: Optional[str] = Query(None, description="Filter by currency code"),
     start_date: Optional[date] = Query(None, description="Filter by start date (inclusive)"),
-    end_date: Optional[date] = Query(None, description="Filter by end date (inclusive)")
+    end_date: Optional[date] = Query(None, description="Filter by end date (inclusive)"),
+    current_user: dict = Depends(get_current_user)
 ):
-    """Get all transactions, optionally filtered by account, transaction_type, trip_id, merchant, category, currency_code, or date range."""
+    """Get all transactions for the current user, optionally filtered by account, transaction_type, trip_id, merchant, category, currency_code, or date range."""
     try:
         query = """
             SELECT 
@@ -152,8 +164,8 @@ async def get_transactions(
             FROM transactions.ledger t
             LEFT JOIN accounts.list a ON t.account_id = a.account_id
         """
-        params = {}
-        conditions = []
+        params = {"user_id": current_user["user_id"]}
+        conditions = ["t.user_id = :user_id"]  # Always filter by user_id
         
         if account_id:
             conditions.append("t.account_id = :account_id")
@@ -228,15 +240,29 @@ async def get_categories():
 
 
 @router.put("/{transaction_id}", response_model=TransactionResponse)
-async def update_transaction(transaction_id: int, transaction_update: TransactionUpdateRequest):
-    """Update an existing transaction. Cannot change transaction_type or account_id."""
+async def update_transaction(
+    transaction_id: int, 
+    transaction_update: TransactionUpdateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update an existing transaction (only if owned by current user). Cannot change transaction_type or account_id."""
     try:
-        # First check if transaction exists
-        check_query = text("SELECT transaction_id, transaction_type, account_id FROM transactions.ledger WHERE transaction_id = :transaction_id")
+        # First check if transaction exists and belongs to user
+        check_query = text("""
+            SELECT transaction_id, transaction_type, account_id 
+            FROM transactions.ledger 
+            WHERE transaction_id = :transaction_id AND user_id = :user_id
+        """)
         with engine.connect() as conn:
-            existing = conn.execute(check_query, {"transaction_id": transaction_id}).fetchone()
+            existing = conn.execute(check_query, {
+                "transaction_id": transaction_id,
+                "user_id": current_user["user_id"]
+            }).fetchone()
             if not existing:
-                raise HTTPException(status_code=404, detail=f"Transaction ID {transaction_id} not found")
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Transaction ID {transaction_id} not found or you don't have permission"
+                )
             
             existing_type = existing[1]
             
@@ -321,11 +347,12 @@ async def update_transaction(transaction_id: int, transaction_update: Transactio
             if not updates:
                 raise HTTPException(status_code=400, detail="No fields to update")
             
-            # Build update query
+            # Build update query (ensure user_id is in params)
+            params["user_id"] = current_user["user_id"]
             update_query = text(f"""
                 UPDATE transactions.ledger
-                SET {', '.join(updates)}
-                WHERE transaction_id = :transaction_id
+                SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+                WHERE transaction_id = :transaction_id AND user_id = :user_id
                 RETURNING transaction_id, account_id, amount, transaction_type, category, transaction_date, description, merchant, trip_id
             """)
             
@@ -354,19 +381,25 @@ async def update_transaction(transaction_id: int, transaction_update: Transactio
 
 
 @router.delete("/{transaction_id}")
-async def delete_transaction(transaction_id: int):
-    """Delete a transaction. If it's part of a transfer, delete both linked transactions."""
+async def delete_transaction(transaction_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a transaction (only if owned by current user). If it's part of a transfer, delete both linked transactions."""
     try:
-        # Check if transaction exists and get transfer_link_id if it's a transfer
+        # Check if transaction exists and belongs to user, get transfer_link_id if it's a transfer
         check_query = text("""
             SELECT transaction_id, transfer_link_id, transaction_type 
             FROM transactions.ledger 
-            WHERE transaction_id = :transaction_id
+            WHERE transaction_id = :transaction_id AND user_id = :user_id
         """)
         with engine.connect() as conn:
-            existing = conn.execute(check_query, {"transaction_id": transaction_id}).fetchone()
+            existing = conn.execute(check_query, {
+                "transaction_id": transaction_id,
+                "user_id": current_user["user_id"]
+            }).fetchone()
             if not existing:
-                raise HTTPException(status_code=404, detail=f"Transaction ID {transaction_id} not found")
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Transaction ID {transaction_id} not found or you don't have permission"
+                )
             
             transfer_link_id = existing[1]
             transaction_type = existing[2]
@@ -375,10 +408,13 @@ async def delete_transaction(transaction_id: int):
             if transfer_link_id is not None:
                 delete_query = text("""
                     DELETE FROM transactions.ledger 
-                    WHERE transfer_link_id = :transfer_link_id 
+                    WHERE transfer_link_id = :transfer_link_id AND user_id = :user_id
                     RETURNING transaction_id
                 """)
-                result = conn.execute(delete_query, {"transfer_link_id": transfer_link_id})
+                result = conn.execute(delete_query, {
+                    "transfer_link_id": transfer_link_id,
+                    "user_id": current_user["user_id"]
+                })
                 deleted_transactions = result.fetchall()
                 conn.commit()
                 
@@ -392,8 +428,15 @@ async def delete_transaction(transaction_id: int):
                 }
             else:
                 # Regular transaction (not a transfer), just delete it
-                delete_query = text("DELETE FROM transactions.ledger WHERE transaction_id = :transaction_id RETURNING transaction_id")
-                result = conn.execute(delete_query, {"transaction_id": transaction_id})
+                delete_query = text("""
+                    DELETE FROM transactions.ledger 
+                    WHERE transaction_id = :transaction_id AND user_id = :user_id
+                    RETURNING transaction_id
+                """)
+                result = conn.execute(delete_query, {
+                    "transaction_id": transaction_id,
+                    "user_id": current_user["user_id"]
+                })
                 conn.commit()
                 
                 if not result.fetchone():
