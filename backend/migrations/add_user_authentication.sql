@@ -12,35 +12,35 @@
 
 -- Add user_id to accounts.list
 ALTER TABLE accounts.list 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Add user_id to transactions.ledger
 ALTER TABLE transactions.ledger 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Add user_id to balances.snapshot (legacy table)
 ALTER TABLE balances.snapshot 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Add user_id to budgets.list
 ALTER TABLE budgets.list 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Add user_id to expenses.list
 ALTER TABLE expenses.list 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Add user_id to trips.list
 ALTER TABLE trips.list 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Add user_id to goals.list
 ALTER TABLE goals.list 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Exchange rates can be shared or per-user - we'll make it per-user for consistency
 ALTER TABLE exchange_rates.rate_history 
-ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+ADD COLUMN IF NOT EXISTS user_id UUID;
 
 -- Step 3: Create indexes on user_id for performance
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts.list(user_id);
