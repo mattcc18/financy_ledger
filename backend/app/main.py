@@ -13,15 +13,19 @@ app = FastAPI(
 # Allow origins from environment variable or default to allowing all (for development)
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
 if allowed_origins != "*":
-    # Split comma-separated origins
-    allowed_origins = [origin.strip() for origin in allowed_origins.split(",")]
+    # Split comma-separated origins and remove trailing slashes
+    origins_list = [origin.strip().rstrip("/") for origin in allowed_origins.split(",")]
+    allowed_origins = origins_list
+else:
+    allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if isinstance(allowed_origins, list) else ["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include routers
