@@ -1,24 +1,26 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.db.database import engine
 from app.models.schemas import BudgetResponse, BudgetCreateRequest, BudgetUpdateRequest
+from app.auth import get_current_user
 import json
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 
 
 @router.get("", response_model=list[BudgetResponse])
-async def get_all_budgets():
-    """Get all budgets."""
+async def get_all_budgets(current_user: dict = Depends(get_current_user)):
+    """Get all budgets for the authenticated user."""
     try:
         query = text("""
             SELECT budget_id, name, currency, income_sources, categories, created_at, updated_at
             FROM budgets.list
+            WHERE user_id = :user_id
             ORDER BY name
         """)
         
         with engine.connect() as conn:
-            result = conn.execute(query)
+            result = conn.execute(query, {"user_id": current_user["user_id"]})
             budgets = []
             for row in result:
                 budgets.append(BudgetResponse(
@@ -36,17 +38,17 @@ async def get_all_budgets():
 
 
 @router.get("/{budget_id}", response_model=BudgetResponse)
-async def get_budget(budget_id: int):
-    """Get a specific budget by ID."""
+async def get_budget(budget_id: int, current_user: dict = Depends(get_current_user)):
+    """Get a specific budget by ID (only if owned by current user)."""
     try:
         query = text("""
             SELECT budget_id, name, currency, income_sources, categories, created_at, updated_at
             FROM budgets.list
-            WHERE budget_id = :budget_id
+            WHERE budget_id = :budget_id AND user_id = :user_id
         """)
         
         with engine.connect() as conn:
-            result = conn.execute(query, {"budget_id": budget_id})
+            result = conn.execute(query, {"budget_id": budget_id, "user_id": current_user["user_id"]})
             row = result.fetchone()
             
             if not row:
@@ -68,15 +70,15 @@ async def get_budget(budget_id: int):
 
 
 @router.post("", response_model=BudgetResponse)
-async def create_budget(budget: BudgetCreateRequest):
-    """Create a new budget."""
+async def create_budget(budget: BudgetCreateRequest, current_user: dict = Depends(get_current_user)):
+    """Create a new budget for the authenticated user."""
     try:
         income_sources = json.dumps(budget.income_sources if budget.income_sources is not None else [])
         categories = json.dumps(budget.categories if budget.categories is not None else [])
         
         query = text("""
-            INSERT INTO budgets.list (name, currency, income_sources, categories)
-            VALUES (:name, :currency, CAST(:income_sources AS jsonb), CAST(:categories AS jsonb))
+            INSERT INTO budgets.list (name, currency, income_sources, categories, user_id)
+            VALUES (:name, :currency, CAST(:income_sources AS jsonb), CAST(:categories AS jsonb), :user_id)
             RETURNING budget_id, name, currency, income_sources, categories, created_at, updated_at
         """)
         
@@ -85,7 +87,8 @@ async def create_budget(budget: BudgetCreateRequest):
                 "name": budget.name,
                 "currency": budget.currency.upper(),
                 "income_sources": income_sources,
-                "categories": categories
+                "categories": categories,
+                "user_id": current_user["user_id"]
             })
             conn.commit()
             row = result.fetchone()
@@ -104,12 +107,12 @@ async def create_budget(budget: BudgetCreateRequest):
 
 
 @router.put("/{budget_id}", response_model=BudgetResponse)
-async def update_budget(budget_id: int, budget: BudgetUpdateRequest):
-    """Update an existing budget."""
+async def update_budget(budget_id: int, budget: BudgetUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Update an existing budget (only if owned by current user)."""
     try:
         # Build update query dynamically based on provided fields
         updates = []
-        params = {"budget_id": budget_id}
+        params = {"budget_id": budget_id, "user_id": current_user["user_id"]}
         
         if budget.name is not None:
             updates.append("name = :name")
@@ -135,16 +138,16 @@ async def update_budget(budget_id: int, budget: BudgetUpdateRequest):
         query = text(f"""
             UPDATE budgets.list
             SET {', '.join(updates)}
-            WHERE budget_id = :budget_id
+            WHERE budget_id = :budget_id AND user_id = :user_id
             RETURNING budget_id, name, currency, income_sources, categories, created_at, updated_at
         """)
         
         with engine.connect() as conn:
-            # Check if budget exists
-            check_query = text("SELECT budget_id FROM budgets.list WHERE budget_id = :budget_id")
-            check_result = conn.execute(check_query, {"budget_id": budget_id}).fetchone()
+            # Check if budget exists and belongs to user
+            check_query = text("SELECT budget_id FROM budgets.list WHERE budget_id = :budget_id AND user_id = :user_id")
+            check_result = conn.execute(check_query, {"budget_id": budget_id, "user_id": current_user["user_id"]}).fetchone()
             if not check_result:
-                raise HTTPException(status_code=404, detail=f"Budget ID {budget_id} not found")
+                raise HTTPException(status_code=404, detail=f"Budget ID {budget_id} not found or you don't have permission")
             
             result = conn.execute(query, params)
             conn.commit()
@@ -166,18 +169,18 @@ async def update_budget(budget_id: int, budget: BudgetUpdateRequest):
 
 
 @router.delete("/{budget_id}")
-async def delete_budget(budget_id: int):
-    """Delete a budget."""
+async def delete_budget(budget_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a budget (only if owned by current user)."""
     try:
-        query = text("DELETE FROM budgets.list WHERE budget_id = :budget_id RETURNING budget_id")
+        query = text("DELETE FROM budgets.list WHERE budget_id = :budget_id AND user_id = :user_id RETURNING budget_id")
         
         with engine.connect() as conn:
-            result = conn.execute(query, {"budget_id": budget_id})
+            result = conn.execute(query, {"budget_id": budget_id, "user_id": current_user["user_id"]})
             conn.commit()
             row = result.fetchone()
             
             if not row:
-                raise HTTPException(status_code=404, detail=f"Budget ID {budget_id} not found")
+                raise HTTPException(status_code=404, detail=f"Budget ID {budget_id} not found or you don't have permission")
             
             return {"message": f"Budget {budget_id} deleted successfully"}
     except HTTPException:
