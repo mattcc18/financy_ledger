@@ -41,6 +41,9 @@ Thumbs.db
 frontend/dist/
 frontend/build/
 
+# Expenses data
+expenses/
+
 # Temporary files
 *.tmp
 *.temp
