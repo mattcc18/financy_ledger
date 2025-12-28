@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -10,37 +10,107 @@ import {
   Typography,
   Alert,
   Stack,
+  CircularProgress,
 } from '@mui/material';
+import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { getDashboardPalette, PALETTE_BACKGROUNDS } from '../config/colorPalettes';
 import { useTheme } from '../contexts/ThemeContext';
-import { hexToRgba, getBorderOpacity } from '../components/dashboard/utils';
+import { getBorderOpacity } from '../components/dashboard/utils';
 
-const Login: React.FC = () => {
+const ResetPassword: React.FC = () => {
   const { colorPalette } = useTheme();
   const colors = getDashboardPalette(colorPalette);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Get token from URL query parameter
+    const tokenParam = searchParams.get('token');
+    if (tokenParam) {
+      setToken(tokenParam);
+    } else {
+      // Also check hash fragment (Supabase sometimes uses #)
+      const hash = window.location.hash;
+      const hashParams = new URLSearchParams(hash.substring(1));
+      const hashToken = hashParams.get('access_token') || hashParams.get('token');
+      if (hashToken) {
+        setToken(hashToken);
+      } else {
+        setError('No reset token found in URL');
+      }
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    if (!token) {
+      setError('Reset token is missing');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await login(email, password);
-      navigate('/dashboard');
+      const response = await api.confirmPasswordReset(token, password);
+      
+      // If we got an access token, automatically log the user in
+      if (response.access_token) {
+        // Store token and user info
+        localStorage.setItem('auth_token', response.access_token);
+        localStorage.setItem('auth_user', JSON.stringify({
+          user_id: response.user?.id || response.user?.user_id,
+          email: response.user?.email
+        }));
+        
+        // Navigate to dashboard
+        navigate('/dashboard');
+      } else {
+        // Just show success and redirect to login
+        setError(null);
+        setTimeout(() => navigate('/login'), 2000);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to login');
+      setError(err instanceof Error ? err.message : 'Failed to reset password');
     } finally {
       setLoading(false);
     }
   };
+
+  if (!token && !error) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: PALETTE_BACKGROUNDS[colorPalette],
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box
@@ -74,7 +144,7 @@ const Login: React.FC = () => {
                   fontFamily: 'Inter, -apple-system, sans-serif',
                 }}
               >
-                Sign In
+                Set New Password
               </Typography>
 
               {error && (
@@ -86,12 +156,13 @@ const Login: React.FC = () => {
               <form onSubmit={handleSubmit}>
                 <Stack spacing={3}>
                   <TextField
-                    label="Email"
-                    type="email"
+                    label="New Password"
+                    type="password"
                     fullWidth
                     required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    helperText="Must be at least 6 characters"
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         color: colors.card_text,
@@ -112,16 +183,19 @@ const Login: React.FC = () => {
                       '& .MuiInputLabel-root.Mui-focused': {
                         color: colors.card_accent,
                       },
+                      '& .MuiFormHelperText-root': {
+                        color: colors.card_subtext,
+                      },
                     }}
                   />
 
                   <TextField
-                    label="Password"
+                    label="Confirm New Password"
                     type="password"
                     fullWidth
                     required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         color: colors.card_text,
@@ -149,7 +223,7 @@ const Login: React.FC = () => {
                     type="submit"
                     variant="contained"
                     fullWidth
-                    disabled={loading}
+                    disabled={loading || !token}
                     sx={{
                       backgroundColor: colors.card_accent,
                       '&:hover': {
@@ -161,52 +235,30 @@ const Login: React.FC = () => {
                       fontWeight: 600,
                     }}
                   >
-                    {loading ? 'Signing in...' : 'Sign In'}
+                    {loading ? 'Resetting...' : 'Reset Password'}
                   </Button>
                 </Stack>
               </form>
 
-              <Stack spacing={1}>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    textAlign: 'center',
-                    color: colors.card_subtext,
-                    fontFamily: 'Inter, -apple-system, sans-serif',
+              <Typography
+                variant="body2"
+                sx={{
+                  textAlign: 'center',
+                  color: colors.card_subtext,
+                  fontFamily: 'Inter, -apple-system, sans-serif',
+                }}
+              >
+                <Link
+                  to="/login"
+                  style={{
+                    color: colors.card_accent,
+                    textDecoration: 'none',
+                    fontWeight: 600,
                   }}
                 >
-                  <Link
-                    to="/forgot-password"
-                    style={{
-                      color: colors.card_accent,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                    }}
-                  >
-                    Forgot password?
-                  </Link>
-                </Typography>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    textAlign: 'center',
-                    color: colors.card_subtext,
-                    fontFamily: 'Inter, -apple-system, sans-serif',
-                  }}
-                >
-                  Don't have an account?{' '}
-                  <Link
-                    to="/signup"
-                    style={{
-                      color: colors.card_accent,
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                    }}
-                  >
-                    Sign up
-                  </Link>
-                </Typography>
-              </Stack>
+                  Back to Login
+                </Link>
+              </Typography>
             </Stack>
           </CardContent>
         </Card>
@@ -215,5 +267,5 @@ const Login: React.FC = () => {
   );
 };
 
-export default Login;
+export default ResetPassword;
 

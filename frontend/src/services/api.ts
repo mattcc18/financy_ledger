@@ -500,5 +500,19 @@ export const api = {
   getCurrentUser: async (): Promise<{ user_id: string; email?: string }> => {
     return fetchAPI<{ user_id: string; email?: string }>('/api/auth/me');
   },
+
+  requestPasswordReset: async (email: string): Promise<{ message: string }> => {
+    return fetchAPI<{ message: string }>('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  confirmPasswordReset: async (token: string, password: string): Promise<{ message: string; access_token: string; user: any }> => {
+    return fetchAPI<{ message: string; access_token: string; user: any }>('/api/auth/reset-password/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  },
 };
 

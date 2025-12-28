@@ -24,6 +24,15 @@ class SignInRequest(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: str
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    password: str
+
+
 class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -147,6 +156,99 @@ async def signin(request: SignInRequest):
         raise HTTPException(status_code=500, detail=f"Failed to connect to Supabase: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Authentication error: {str(e)}")
+
+
+@router.post("/reset-password")
+async def request_password_reset(request: PasswordResetRequest):
+    """
+    Request a password reset. Sends an email with reset link.
+    """
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase configuration missing. Set SUPABASE_URL and SUPABASE_ANON_KEY"
+        )
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{SUPABASE_URL}/auth/v1/recover",
+                json={
+                    "email": request.email
+                },
+                headers={
+                    "apikey": SUPABASE_ANON_KEY,
+                    "Content-Type": "application/json",
+                    "X-Client-Info": "finance-dashboard"
+                }
+            )
+            
+            # Supabase returns 200 even if email doesn't exist (for security)
+            if response.status_code == 200:
+                return {
+                    "message": "If an account with that email exists, a password reset link has been sent."
+                }
+            else:
+                error_data = response.json() if response.content else {}
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=error_data.get("message", "Failed to send password reset email")
+                )
+    except HTTPException:
+        raise
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to connect to Supabase: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Password reset error: {str(e)}")
+
+
+@router.post("/reset-password/confirm")
+async def confirm_password_reset(request: PasswordResetConfirmRequest):
+    """
+    Confirm password reset with the token from email.
+    """
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase configuration missing. Set SUPABASE_URL and SUPABASE_ANON_KEY"
+        )
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{SUPABASE_URL}/auth/v1/verify",
+                json={
+                    "type": "recovery",
+                    "token": request.token,
+                    "password": request.password
+                },
+                headers={
+                    "apikey": SUPABASE_ANON_KEY,
+                    "Content-Type": "application/json",
+                    "X-Client-Info": "finance-dashboard"
+                }
+            )
+            
+            if response.status_code != 200:
+                error_data = response.json() if response.content else {}
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=error_data.get("message") or error_data.get("error_description") or "Invalid or expired reset token"
+                )
+            
+            data = response.json()
+            
+            return {
+                "message": "Password reset successful",
+                "access_token": data.get("access_token", ""),
+                "user": data.get("user", {})
+            }
+    except HTTPException:
+        raise
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to connect to Supabase: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Password reset confirmation error: {str(e)}")
 
 
 @router.get("/me")

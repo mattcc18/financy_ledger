@@ -13,6 +13,8 @@ import AccountsPage from './pages/AccountsPage';
 import AccountDetailsPage from './pages/AccountDetailsPage';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // Import Dashboard directly (not lazy)
 import Dashboard from './pages/Dashboard';
@@ -75,6 +77,8 @@ function App() {
                 <Routes>
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<Signup />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
                   <Route
                     path="/*"
                     element={
