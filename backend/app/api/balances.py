@@ -48,7 +48,6 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
         COALESCE(r_te.rate_to_eur, 1.0) AS rate_to_eur
     FROM account_balances ab
     JOIN accounts.list a ON ab.account_id = a.account_id
-    WHERE 1=1 {user_filter_accounts}
     LEFT JOIN LATERAL (
         SELECT 1.0 / r_te.rate AS rate_to_eur
         FROM exchange_rates.rate_history r_te
@@ -58,6 +57,7 @@ def load_balances_from_transactions(target_currency: str = 'EUR', balance_date: 
         ORDER BY r_te.rate_date DESC
         LIMIT 1
     ) r_te ON a.currency_code != 'EUR'
+    WHERE 1=1 {user_filter_accounts}
     ORDER BY ab.balance_date DESC, a.account_id;
     """
     
