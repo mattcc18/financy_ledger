@@ -27,7 +27,6 @@ DB_HOST = os.getenv("DB_HOST")
 DB_NAME = os.getenv("DB_NAME")
 
 # Prefer Supabase connection string if available
-# Note: On Render, environment variables are set directly, not in .env files
 if SUPABASE_DB_URL:
     # Parse and properly encode the connection string to handle special characters in password
     try:
@@ -68,8 +67,8 @@ elif all([DB_USER, DB_PASS, DB_HOST, DB_NAME]):
 else:
     raise ValueError(
         "Missing required database environment variables. "
-        "Please set either SUPABASE_DB_URL or (DB_USER, DB_PASS, DB_HOST, DB_NAME) as environment variables. "
-        f"Checked .env locations: {[str(p) for p in env_paths]}"
+        "Please set either SUPABASE_DB_URL or (DB_USER, DB_PASS, DB_HOST, DB_NAME) in your .env file. "
+        f"Checked locations: {[str(p) for p in env_paths]}"
     )
 
 engine = create_engine(

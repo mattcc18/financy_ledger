@@ -1,23 +1,27 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.db.database import engine
 from app.models.schemas import MarketAdjustmentRequest, MarketAdjustmentResponse
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/market-adjustments", tags=["market-adjustments"])
 
 
 @router.post("", response_model=MarketAdjustmentResponse)
-async def create_market_adjustment(adjustment: MarketAdjustmentRequest):
+async def create_market_adjustment(adjustment: MarketAdjustmentRequest, current_user: dict = Depends(get_current_user)):
     """
     Sync an investment account with actual balance.
     Creates a 'Market Gain' or 'Market Loss' transaction for the difference.
     """
     try:
-        # Validate account exists
-        check_account = text("SELECT account_id FROM accounts.list WHERE account_id = :account_id")
+        # Validate account exists and belongs to user
+        check_account = text("SELECT account_id FROM accounts.list WHERE account_id = :account_id AND user_id = :user_id")
         
         with engine.connect() as conn:
-            account_result = conn.execute(check_account, {"account_id": adjustment.account_id}).fetchone()
+            account_result = conn.execute(check_account, {
+                "account_id": adjustment.account_id,
+                "user_id": current_user["user_id"]
+            }).fetchone()
             if not account_result:
                 raise HTTPException(status_code=404, detail=f"Account ID {adjustment.account_id} not found")
             
@@ -25,10 +29,13 @@ async def create_market_adjustment(adjustment: MarketAdjustmentRequest):
             current_balance_query = text("""
                 SELECT COALESCE(SUM(amount), 0) 
                 FROM transactions.ledger 
-                WHERE account_id = :account_id
+                WHERE account_id = :account_id AND user_id = :user_id
             """)
             
-            current_balance_result = conn.execute(current_balance_query, {"account_id": adjustment.account_id})
+            current_balance_result = conn.execute(current_balance_query, {
+                "account_id": adjustment.account_id,
+                "user_id": current_user["user_id"]
+            })
             current_balance = float(current_balance_result.scalar() or 0)
             
             # Calculate difference
@@ -52,8 +59,8 @@ async def create_market_adjustment(adjustment: MarketAdjustmentRequest):
             # Insert adjustment transaction
             insert_transaction = text("""
                 INSERT INTO transactions.ledger 
-                (account_id, amount, transaction_type, category, transaction_date, description)
-                VALUES (:account_id, :amount, 'income', :category, :transaction_date, :description)
+                (account_id, amount, transaction_type, category, transaction_date, description, user_id)
+                VALUES (:account_id, :amount, 'income', :category, :transaction_date, :description, :user_id)
                 RETURNING transaction_id
             """)
             
@@ -62,7 +69,8 @@ async def create_market_adjustment(adjustment: MarketAdjustmentRequest):
                 "amount": adjustment_amount,
                 "category": category,
                 "transaction_date": adjustment.date,
-                "description": description
+                "description": description,
+                "user_id": current_user["user_id"]
             })
             transaction_id = result.scalar()
             

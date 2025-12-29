@@ -1,28 +1,31 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.db.database import engine
 from app.models.schemas import TransferRequest, TransferResponse
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
 
 @router.post("", response_model=TransferResponse)
-async def create_transfer(transfer: TransferRequest):
+async def create_transfer(transfer: TransferRequest, current_user: dict = Depends(get_current_user)):
     """
     Transfer money between two accounts.
     Creates two linked transactions: one negative (from account) and one positive (to account).
     """
     try:
-        # Validate accounts exist
+        # Validate accounts exist and belong to user
         check_accounts = text("""
             SELECT account_id FROM accounts.list 
             WHERE account_id IN (:from_account_id, :to_account_id)
+              AND user_id = :user_id
         """)
         
         with engine.connect() as conn:
             result = conn.execute(check_accounts, {
                 "from_account_id": transfer.from_account_id,
-                "to_account_id": transfer.to_account_id
+                "to_account_id": transfer.to_account_id,
+                "user_id": current_user["user_id"]
             })
             found_accounts = {row[0] for row in result}
             
@@ -61,8 +64,8 @@ async def create_transfer(transfer: TransferRequest):
             # Insert negative transaction (from account) - merchant = to_account_name
             insert_from = text("""
                 INSERT INTO transactions.ledger 
-                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant)
-                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant)
+                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant, user_id)
+                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant, :user_id)
                 RETURNING transaction_id
             """)
             
@@ -72,15 +75,16 @@ async def create_transfer(transfer: TransferRequest):
                 "transaction_date": transfer.date,
                 "transfer_link_id": transfer_link_id,
                 "description": f"{description} (from)",
-                "merchant": to_account_name  # Set merchant to the destination account name
+                "merchant": to_account_name,  # Set merchant to the destination account name
+                "user_id": current_user["user_id"]
             })
             from_transaction_id = from_result.scalar()
             
             # Insert positive transaction (to account) - merchant = from_account_name
             insert_to = text("""
                 INSERT INTO transactions.ledger 
-                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant)
-                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant)
+                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant, user_id)
+                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant, :user_id)
                 RETURNING transaction_id
             """)
             
@@ -90,7 +94,8 @@ async def create_transfer(transfer: TransferRequest):
                 "transaction_date": transfer.date,
                 "transfer_link_id": transfer_link_id,
                 "description": f"{description} (to)",
-                "merchant": from_account_name  # Set merchant to the source account name
+                "merchant": from_account_name,  # Set merchant to the source account name
+                "user_id": current_user["user_id"]
             })
             to_transaction_id = to_result.scalar()
             
@@ -107,8 +112,8 @@ async def create_transfer(transfer: TransferRequest):
                 
                 insert_fee = text("""
                     INSERT INTO transactions.ledger 
-                    (account_id, amount, transaction_type, category, transaction_date, description, merchant)
-                    VALUES (:account_id, :amount, 'expense', 'Bank Fees', :transaction_date, :description, :merchant)
+                    (account_id, amount, transaction_type, category, transaction_date, description, merchant, user_id)
+                    VALUES (:account_id, :amount, 'expense', 'Bank Fees', :transaction_date, :description, :merchant, :user_id)
                     RETURNING transaction_id
                 """)
                 
@@ -117,7 +122,8 @@ async def create_transfer(transfer: TransferRequest):
                     "amount": -transfer.fees,  # Negative amount (expense)
                     "transaction_date": transfer.date,
                     "description": f"Transfer fee: {transfer.fees} {currency_code}",
-                    "merchant": "Transfer Fee"
+                    "merchant": "Transfer Fee",
+                    "user_id": current_user["user_id"]
                 })
                 fee_transaction_id = fee_result.scalar()
             

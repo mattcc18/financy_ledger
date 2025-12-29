@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
 from sqlalchemy import text
 from typing import List, Dict, Optional
 import csv
@@ -6,6 +6,7 @@ import io
 from datetime import datetime
 from app.db.database import engine
 from app.models.schemas import TransactionCreateRequest
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/csv-import", tags=["csv-import"])
 
@@ -559,7 +560,8 @@ def parse_monzo(row: Dict, accounts: List[Dict], default_account_id: Optional[in
 @router.post("/upload")
 async def upload_csv(
     file: UploadFile = File(...),
-    account_id: Optional[int] = Query(None, description="Account ID that this CSV is from")
+    account_id: Optional[int] = Query(None, description="Account ID that this CSV is from"),
+    current_user: dict = Depends(get_current_user)
 ):
     """Upload and parse CSV file"""
     try:
@@ -581,8 +583,8 @@ async def upload_csv(
         
         # Get all accounts
         with engine.connect() as conn:
-            accounts_query = text("SELECT account_id, account_name, institution, currency_code FROM accounts.list")
-            accounts_result = conn.execute(accounts_query)
+            accounts_query = text("SELECT account_id, account_name, institution, currency_code FROM accounts.list WHERE user_id = :user_id")
+            accounts_result = conn.execute(accounts_query, {"user_id": current_user["user_id"]})
             accounts = [
                 {
                     'account_id': row[0],
@@ -647,7 +649,7 @@ async def upload_csv(
 
 
 @router.post("/confirm")
-async def confirm_transactions(transactions: List[Dict]):
+async def confirm_transactions(transactions: List[Dict], current_user: dict = Depends(get_current_user)):
     """Confirm and import transactions, saving patterns"""
     try:
         with engine.connect() as conn:
@@ -678,10 +680,12 @@ async def confirm_transactions(transactions: List[Dict]):
                     account_names_query = text("""
                         SELECT account_id, account_name FROM accounts.list 
                         WHERE account_id IN (:from_account_id, :to_account_id)
+                          AND user_id = :user_id
                     """)
                     account_names_result = conn.execute(account_names_query, {
                         "from_account_id": from_account_id,
-                        "to_account_id": to_account_id
+                        "to_account_id": to_account_id,
+                        "user_id": current_user["user_id"]
                     }).fetchall()
                     account_names = {row[0]: row[1] for row in account_names_result}
                     from_account_name = account_names.get(from_account_id, "Unknown Account")
@@ -698,9 +702,9 @@ async def confirm_transactions(transactions: List[Dict]):
                     insert_from = text("""
                         INSERT INTO transactions.ledger 
                         (account_id, amount, transaction_type, category, transaction_date, 
-                         transfer_link_id, description, merchant)
+                         transfer_link_id, description, merchant, user_id)
                         VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, 
-                                :transfer_link_id, :description, :merchant)
+                                :transfer_link_id, :description, :merchant, :user_id)
                     """)
                     conn.execute(insert_from, {
                         'account_id': from_account_id,
@@ -708,16 +712,17 @@ async def confirm_transactions(transactions: List[Dict]):
                         'transaction_date': tx['transaction_date'],
                         'transfer_link_id': transfer_link_id,
                         'description': f"{description} (from {from_account_name} to {to_account_name})",
-                        'merchant': to_account_name
+                        'merchant': to_account_name,
+                        'user_id': current_user["user_id"]
                     })
                     
                     # Insert positive transaction (to account)
                     insert_to = text("""
                         INSERT INTO transactions.ledger 
                         (account_id, amount, transaction_type, category, transaction_date, 
-                         transfer_link_id, description, merchant)
+                         transfer_link_id, description, merchant, user_id)
                         VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, 
-                                :transfer_link_id, :description, :merchant)
+                                :transfer_link_id, :description, :merchant, :user_id)
                     """)
                     conn.execute(insert_to, {
                         'account_id': to_account_id,
@@ -725,7 +730,8 @@ async def confirm_transactions(transactions: List[Dict]):
                         'transaction_date': tx['transaction_date'],
                         'transfer_link_id': transfer_link_id,
                         'description': f"{description} (from {from_account_name} to {to_account_name})",
-                        'merchant': from_account_name
+                        'merchant': from_account_name,
+                        'user_id': current_user["user_id"]
                     })
                     
                     imported_count += 2
@@ -735,9 +741,9 @@ async def confirm_transactions(transactions: List[Dict]):
                     create_query = text("""
                         INSERT INTO transactions.ledger 
                         (account_id, amount, transaction_type, category, transaction_date, 
-                         description, merchant, trip_id)
+                         description, merchant, trip_id, user_id)
                         VALUES (:account_id, :amount, :transaction_type, :category, 
-                                :transaction_date, :description, :merchant, :trip_id)
+                                :transaction_date, :description, :merchant, :trip_id, :user_id)
                     """)
                     conn.execute(create_query, {
                         'account_id': tx['account_id'],
@@ -747,7 +753,8 @@ async def confirm_transactions(transactions: List[Dict]):
                         'transaction_date': tx['transaction_date'],
                         'description': tx.get('description'),
                         'merchant': tx.get('merchant'),
-                        'trip_id': tx.get('trip_id')
+                        'trip_id': tx.get('trip_id'),
+                        'user_id': current_user["user_id"]
                     })
                     imported_count += 1
                 

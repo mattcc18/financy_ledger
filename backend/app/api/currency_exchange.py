@@ -1,13 +1,14 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.db.database import engine
 from app.models.schemas import CurrencyExchangeRequest, CurrencyExchangeResponse
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/currency-exchange", tags=["currency-exchange"])
 
 
 @router.post("", response_model=CurrencyExchangeResponse)
-async def create_currency_exchange(exchange: CurrencyExchangeRequest):
+async def create_currency_exchange(exchange: CurrencyExchangeRequest, current_user: dict = Depends(get_current_user)):
     """
     Transfer money between accounts in different currencies.
     Creates transactions for the transfer and optional fees.
@@ -17,12 +18,14 @@ async def create_currency_exchange(exchange: CurrencyExchangeRequest):
         check_accounts = text("""
             SELECT account_id, account_name, currency_code FROM accounts.list 
             WHERE account_id IN (:from_account_id, :to_account_id)
+              AND user_id = :user_id
         """)
         
         with engine.connect() as conn:
             result = conn.execute(check_accounts, {
                 "from_account_id": exchange.from_account_id,
-                "to_account_id": exchange.to_account_id
+                "to_account_id": exchange.to_account_id,
+                "user_id": current_user["user_id"]
             })
             accounts_data = {row[0]: {"name": row[1], "currency": row[2]} for row in result}
             
@@ -58,8 +61,8 @@ async def create_currency_exchange(exchange: CurrencyExchangeRequest):
             # Insert negative transaction (from account) - in source currency
             insert_from = text("""
                 INSERT INTO transactions.ledger 
-                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant)
-                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant)
+                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant, user_id)
+                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant, :user_id)
                 RETURNING transaction_id
             """)
             
@@ -69,15 +72,16 @@ async def create_currency_exchange(exchange: CurrencyExchangeRequest):
                 "transaction_date": exchange.date,
                 "transfer_link_id": transfer_link_id,
                 "description": f"{description} (from)",
-                "merchant": to_account["name"]
+                "merchant": to_account["name"],
+                "user_id": current_user["user_id"]
             })
             from_transaction_id = from_result.scalar()
             
             # Insert positive transaction (to account) - in destination currency
             insert_to = text("""
                 INSERT INTO transactions.ledger 
-                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant)
-                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant)
+                (account_id, amount, transaction_type, category, transaction_date, transfer_link_id, description, merchant, user_id)
+                VALUES (:account_id, :amount, 'transfer', 'Transfer', :transaction_date, :transfer_link_id, :description, :merchant, :user_id)
                 RETURNING transaction_id
             """)
             
@@ -87,7 +91,8 @@ async def create_currency_exchange(exchange: CurrencyExchangeRequest):
                 "transaction_date": exchange.date,
                 "transfer_link_id": transfer_link_id,
                 "description": f"{description} (to)",
-                "merchant": from_account["name"]
+                "merchant": from_account["name"],
+                "user_id": current_user["user_id"]
             })
             to_transaction_id = to_result.scalar()
             
@@ -96,8 +101,8 @@ async def create_currency_exchange(exchange: CurrencyExchangeRequest):
             if exchange.fees > 0:
                 insert_fee = text("""
                     INSERT INTO transactions.ledger 
-                    (account_id, amount, transaction_type, category, transaction_date, description, merchant)
-                    VALUES (:account_id, :amount, 'expense', 'Bank Fees', :transaction_date, :description, :merchant)
+                    (account_id, amount, transaction_type, category, transaction_date, description, merchant, user_id)
+                    VALUES (:account_id, :amount, 'expense', 'Bank Fees', :transaction_date, :description, :merchant, :user_id)
                     RETURNING transaction_id
                 """)
                 
@@ -106,7 +111,8 @@ async def create_currency_exchange(exchange: CurrencyExchangeRequest):
                     "amount": -exchange.fees,  # Negative amount (expense) in source currency
                     "transaction_date": exchange.date,
                     "description": f"Currency exchange fee: {exchange.fees} {from_currency}",
-                    "merchant": "Currency Exchange"
+                    "merchant": "Currency Exchange",
+                    "user_id": current_user["user_id"]
                 })
                 fee_transaction_id = fee_result.scalar()
             
