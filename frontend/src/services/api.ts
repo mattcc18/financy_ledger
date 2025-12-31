@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'http://localhost:8000');
+const API_BASE_URL = (import.meta.env && import.meta.env.VITE_API_URL) || ((import.meta.env && import.meta.env.DEV) ? '' : 'http://localhost:8000');
 
 export interface Balance {
   balance_date: string;
@@ -146,7 +146,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
         // Try to refresh the token
         const refreshResponse = await fetch(`${API_BASE_URL || 'http://localhost:8000'}/api/auth/refresh`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json' } as HeadersInit,
           body: JSON.stringify({ refresh_token: refreshToken }),
         });
         
@@ -164,9 +164,9 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
     }
   }
   
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options?.headers,
+    ...(options?.headers as Record<string, string> || {}),
   };
   
   // Add auth token if available
@@ -176,7 +176,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   
   const response = await fetch(url, {
     ...options,
-    headers,
+    headers: headers as HeadersInit,
   });
 
   if (!response.ok) {
@@ -187,7 +187,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
         try {
           const refreshResponse = await fetch(`${API_BASE_URL || 'http://localhost:8000'}/api/auth/refresh`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' } as HeadersInit,
             body: JSON.stringify({ refresh_token: refreshToken }),
           });
           
@@ -200,8 +200,11 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
             }
             
             // Retry the original request with new token
-            headers['Authorization'] = `Bearer ${newToken}`;
-            const retryResponse = await fetch(url, { ...options, headers });
+            const retryHeaders: Record<string, string> = {
+              ...headers,
+              'Authorization': `Bearer ${newToken}`,
+            };
+            const retryResponse = await fetch(url, { ...options, headers: retryHeaders });
             if (retryResponse.ok) {
               return retryResponse.json();
             }

@@ -154,7 +154,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     try {
       // Call backend to refresh token (if endpoint exists)
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const apiUrl = (import.meta.env && import.meta.env.VITE_API_URL) || 'http://localhost:8000';
       const response = await fetch(`${apiUrl}/api/auth/refresh`, {
         method: 'POST',
         headers: {
