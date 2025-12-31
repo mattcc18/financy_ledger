@@ -180,7 +180,7 @@ async def get_account_balance_history(
                 ) as running_balance
             FROM transactions.ledger t
             JOIN accounts.list a ON t.account_id = a.account_id
-            WHERE a.account_name = :account_name 
+            WHERE a.account_name = :account_name
               AND t.user_id = :user_id 
               AND a.user_id = :user_id
         ),

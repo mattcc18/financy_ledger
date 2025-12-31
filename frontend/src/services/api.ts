@@ -114,12 +114,56 @@ export interface Goal {
   updated_at: string;
 }
 
+// Check if token is expired or about to expire (within 5 minutes)
+function isTokenExpiringSoon(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (!payload.exp) return false;
+    
+    const expirationTime = payload.exp * 1000; // Convert to milliseconds
+    const currentTime = Date.now();
+    const timeUntilExpiration = expirationTime - currentTime;
+    
+    // Return true if token expires in less than 5 minutes
+    return timeUntilExpiration < 5 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = API_BASE_URL ? `${API_BASE_URL}${endpoint}` : endpoint;
   console.log('API Call:', options?.method || 'GET', url, options?.body);
   
   // Get auth token from localStorage
-  const token = localStorage.getItem('auth_token');
+  let token = localStorage.getItem('auth_token');
+  
+  // Check if token is expiring soon and try to refresh
+  if (token && isTokenExpiringSoon(token)) {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (refreshToken) {
+      try {
+        // Try to refresh the token
+        const refreshResponse = await fetch(`${API_BASE_URL || 'http://localhost:8000'}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+        
+        if (refreshResponse.ok) {
+          const refreshData = await refreshResponse.json();
+          token = refreshData.access_token;
+          localStorage.setItem('auth_token', token);
+          if (refreshData.refresh_token) {
+            localStorage.setItem('refresh_token', refreshData.refresh_token);
+          }
+        }
+      } catch (error) {
+        console.warn('Token refresh failed, continuing with current token:', error);
+      }
+    }
+  }
+  
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...options?.headers,
@@ -136,6 +180,38 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   });
 
   if (!response.ok) {
+    // If 401, token might be expired - try to refresh once
+    if (response.status === 401 && token) {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken) {
+        try {
+          const refreshResponse = await fetch(`${API_BASE_URL || 'http://localhost:8000'}/api/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+          });
+          
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json();
+            const newToken = refreshData.access_token;
+            localStorage.setItem('auth_token', newToken);
+            if (refreshData.refresh_token) {
+              localStorage.setItem('refresh_token', refreshData.refresh_token);
+            }
+            
+            // Retry the original request with new token
+            headers['Authorization'] = `Bearer ${newToken}`;
+            const retryResponse = await fetch(url, { ...options, headers });
+            if (retryResponse.ok) {
+              return retryResponse.json();
+            }
+          }
+        } catch (error) {
+          console.error('Token refresh failed:', error);
+        }
+      }
+    }
+    
     let errorMessage = `HTTP error! status: ${response.status}`;
     try {
       const error = await response.json();
@@ -483,15 +559,15 @@ export const api = {
   },
 
   // Authentication
-  signUp: async (email: string, password: string): Promise<{ access_token: string; user: any }> => {
-    return fetchAPI<{ access_token: string; user: any }>('/api/auth/signup', {
+  signUp: async (email: string, password: string): Promise<{ access_token: string; refresh_token?: string; user: any }> => {
+    return fetchAPI<{ access_token: string; refresh_token?: string; user: any }>('/api/auth/signup', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
   },
 
-  signIn: async (email: string, password: string): Promise<{ access_token: string; user: any }> => {
-    return fetchAPI<{ access_token: string; user: any }>('/api/auth/signin', {
+  signIn: async (email: string, password: string): Promise<{ access_token: string; refresh_token?: string; user: any }> => {
+    return fetchAPI<{ access_token: string; refresh_token?: string; user: any }>('/api/auth/signin', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
