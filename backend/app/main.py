@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import balances, accounts, transactions, transfers, market_adjustments, exchange_rates, trips, expenses, budgets, goals, metrics, csv_import, categories, currency_exchange
+from app.api import balances, accounts, transactions, transfers, market_adjustments, exchange_rates, trips, expenses, budgets, goals, metrics, csv_import, categories, currency_exchange, auth
 
 app = FastAPI(
     title="Finance Dashboard API",
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)  # Auth endpoints (signup, signin) - no auth required
 app.include_router(balances.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
