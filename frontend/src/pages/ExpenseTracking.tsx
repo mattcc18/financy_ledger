@@ -128,13 +128,49 @@ const ExpenseTracking: React.FC = () => {
   // Only load when trips section might be visible
   const { tripExpenses, loading: tripExpensesLoading } = useTripExpenses(true); // Always load for trips
 
+  // Calculate date range for comparison expenses (3 months before to 2 months after current period)
+  const comparisonDateRange = useMemo(() => {
+    if (!filterStartDate || !filterEndDate) return { start: null, end: null };
+    
+    const currentStart = new Date(filterStartDate);
+    const currentEnd = new Date(filterEndDate);
+    const startDay = currentStart.getDate();
+    const endDay = currentEnd.getDate();
+    
+    // Calculate earliest period start (3 months before)
+    const earliestStart = new Date(currentStart);
+    earliestStart.setMonth(earliestStart.getMonth() - 3);
+    earliestStart.setDate(startDay);
+    earliestStart.setHours(0, 0, 0, 0);
+    
+    // Calculate latest period end (2 months after)
+    const latestEnd = new Date(currentStart);
+    latestEnd.setMonth(latestEnd.getMonth() + 2);
+    if (endDay < startDay) {
+      latestEnd.setMonth(latestEnd.getMonth() + 1);
+      latestEnd.setDate(endDay);
+    } else {
+      latestEnd.setDate(endDay);
+    }
+    latestEnd.setHours(23, 59, 59, 999);
+    
+    return {
+      start: earliestStart.toISOString().split('T')[0],
+      end: latestEnd.toISOString().split('T')[0],
+    };
+  }, [filterStartDate, filterEndDate]);
+
   // Load all expenses for comparison (we'll filter by date range as needed)
+  // Load enough periods to cover 3 previous, current, and 2 future periods
   const { allComparisonExpenses, loading: comparisonExpensesLoading } = useComparisonExpenses({
-    selectedMonth: '', // Not used anymore
-    frequency: 'monthly', // Not used anymore
-    startDay: 24, // Not used anymore
+    selectedMonth: filterStartDate ? filterStartDate.substring(0, 7) : new Date().toISOString().substring(0, 7), // Use current filter month
+    frequency: 'monthly',
+    startDay: 24,
     displayCurrency,
-    periodsToLoad: 1, // Just load current period
+    periodsToLoad: 4, // Load 4 periods: 3 previous + current
+    futurePeriodsToLoad: 2, // Load 2 future periods
+    dateRangeStart: comparisonDateRange.start || undefined,
+    dateRangeEnd: comparisonDateRange.end || undefined,
   });
   
   // Get categories from selected budget or from expenses
