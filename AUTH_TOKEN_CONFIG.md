@@ -58,3 +58,4 @@ For immediate fix: **Use Option 1** (increase JWT expiry in Supabase dashboard) 
 
 For better long-term solution: **Use Option 3** (Supabase client library) - it handles everything automatically and is more secure.
 
+

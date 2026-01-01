@@ -15,3 +15,4 @@ declare module 'react-plotly.js' {
   export default class Plot extends Component<PlotParamsWithData> {}
 }
 
+

@@ -147,7 +147,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
         const refreshResponse = await fetch(`${API_BASE_URL || 'http://localhost:8000'}/api/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' } as HeadersInit,
-          body: JSON.stringify({ refresh_token: refreshToken }),
+          body: JSON.stringify({ refresh_token: refreshToken || '' }),
         });
         
         if (refreshResponse.ok) {
@@ -188,7 +188,7 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
           const refreshResponse = await fetch(`${API_BASE_URL || 'http://localhost:8000'}/api/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' } as HeadersInit,
-            body: JSON.stringify({ refresh_token: refreshToken }),
+            body: JSON.stringify({ refresh_token: refreshToken || '' }),
           });
           
           if (refreshResponse.ok) {

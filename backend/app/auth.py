@@ -74,3 +74,4 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         "app_metadata": token_data.get("app_metadata", {})
     }
 
+

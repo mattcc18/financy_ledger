@@ -36,3 +36,4 @@ The script generates `import_exchange_rates_sep2025.sql` which contains:
 
 Copy the generated SQL and run it in your Supabase SQL Editor.
 
+
