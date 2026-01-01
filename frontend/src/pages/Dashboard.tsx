@@ -307,156 +307,36 @@ const Dashboard: React.FC = () => {
     return { moneyIn, moneyOut };
   }, [transactions, accounts, selectedCurrency]);
 
-  // Prepare chart data with daily balances (continuous series)
+  // Prepare chart data using balance data (same calculation as metrics API)
   const prepareChartData = () => {
-    if (!allTransactions.length || !accounts.length || !accountTypes) {
-      // Fallback to balance-based approach if no transactions
-      if (!allBalances.length || !accountTypes) return null;
+    // Use balance-based approach - this uses the same exchange rates as metrics API
+    // This ensures the chart matches the main net worth display
+    if (!allBalances.length || !accountTypes) return null;
 
-      const dates = [...new Set(allBalances.map(b => b.balance_date))].sort();
-      const netWorthData: number[] = [];
-      const cashData: number[] = [];
-      const investmentData: number[] = [];
-
-      dates.forEach(date => {
-        const dateBalances = allBalances.filter(b => b.balance_date === date);
-        let netWorth = 0;
-        let cash = 0;
-        let investments = 0;
-
-        dateBalances.forEach(b => {
-          const val = (b[balanceCol] as number) || 0;
-          netWorth += val;
-          const cashTypesLower = accountTypes.cash_types.map(t => t.toLowerCase());
-          const investmentTypesLower = accountTypes.investment_types.map(t => t.toLowerCase());
-          if (cashTypesLower.includes(b.account_type.toLowerCase())) {
-            cash += val;
-          }
-          if (investmentTypesLower.includes(b.account_type.toLowerCase())) {
-            investments += val;
-          }
-        });
-
-        netWorthData.push(netWorth);
-        cashData.push(cash);
-        investmentData.push(investments);
-      });
-
-      return { dates, netWorthData, cashData, investmentData };
-    }
-
-    // Get account type and currency mappings
-    const accountTypeMap = new Map<number, string>();
-    const accountCurrencyMap = new Map<number, string>();
-    accounts.forEach(acc => {
-      accountTypeMap.set(acc.account_id, acc.account_type);
-      accountCurrencyMap.set(acc.account_id, acc.currency_code);
-    });
-
-    // Sort transactions by date
-    const sortedTransactions = [...allTransactions].sort((a, b) => 
-      new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
-    );
-
-    // Get date range (earliest transaction to today)
-    const earliestDate = new Date(sortedTransactions[0].transaction_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Generate all dates in range (daily series)
-    const dates: string[] = [];
-    const dateObj = new Date(earliestDate);
-    while (dateObj <= today) {
-      dates.push(dateObj.toISOString().split('T')[0]);
-      dateObj.setDate(dateObj.getDate() + 1);
-    }
-
-    // Calculate running balances per account (in native currency)
-    const accountBalances = new Map<number, number>(); // account_id -> balance in native currency
-    const dailyBalances = new Map<string, Map<number, number>>(); // date -> account_id -> balance (native currency)
-
-    // Initialize account balances to 0 (will be built up from transactions)
-    accounts.forEach(acc => {
-      accountBalances.set(acc.account_id, 0);
-    });
-
-    // Process transactions chronologically to build running balances
-    sortedTransactions.forEach(tx => {
-      const currentBalance = accountBalances.get(tx.account_id) || 0;
-      const newBalance = currentBalance + tx.amount;
-      accountBalances.set(tx.account_id, newBalance);
-    });
-
-    // Build daily balances: for each date, sum all transactions up to that date
-    const accountBalancesByDate = new Map<string, Map<number, number>>();
-    
-    dates.forEach(dateStr => {
-      const dayBalances = new Map<number, number>();
-      
-      // Initialize all accounts to 0
-      accounts.forEach(acc => {
-        dayBalances.set(acc.account_id, 0);
-      });
-
-      // Sum all transactions up to and including this date
-      sortedTransactions.forEach(tx => {
-        const txDate = new Date(tx.transaction_date).toISOString().split('T')[0];
-        if (txDate <= dateStr) {
-          const currentBalance = dayBalances.get(tx.account_id) || 0;
-          dayBalances.set(tx.account_id, currentBalance + tx.amount);
-        }
-      });
-
-      accountBalancesByDate.set(dateStr, dayBalances);
-    });
-
-    // Aggregate by date to get net worth, cash, investments (convert to selected currency)
+    const dates = [...new Set(allBalances.map(b => b.balance_date))].sort();
     const netWorthData: number[] = [];
     const cashData: number[] = [];
     const investmentData: number[] = [];
 
-    // Exchange rates for currency conversion (simplified - use latest rates)
-    // In production, you'd want to use historical rates from the API
-    const EXCHANGE_RATES: { [key: string]: number } = {
-      'EUR': 1.0,
-      'USD': 1.08,
-      'GBP': 0.86,
-      'CHF': 0.96,
-      'CAD': 1.46
-    };
-
-    const cashTypesLower = accountTypes.cash_types.map(t => t.toLowerCase());
-    const investmentTypesLower = accountTypes.investment_types.map(t => t.toLowerCase());
-
-    dates.forEach(dateStr => {
-      const dayBalances = accountBalancesByDate.get(dateStr);
-      if (!dayBalances) {
-        netWorthData.push(0);
-        cashData.push(0);
-        investmentData.push(0);
-        return;
-      }
-
+    dates.forEach(date => {
+      const dateBalances = allBalances.filter(b => b.balance_date === date);
       let netWorth = 0;
       let cash = 0;
       let investments = 0;
 
-      dayBalances.forEach((balance, accountId) => {
-        const accountType = accountTypeMap.get(accountId) || '';
-        const accountCurrency = accountCurrencyMap.get(accountId) || 'EUR';
+      dateBalances.forEach(b => {
+        // Use the converted balance directly from the API (same calculation as metrics uses)
+        const val = (b[balanceCol] as number) || 0;
+        netWorth += val;
         
-        // Convert from account's native currency to selected currency
-        const accountRate = EXCHANGE_RATES[accountCurrency] || 1.0;
-        const targetRate = EXCHANGE_RATES[selectedCurrency] || 1.0;
-        const convertedBalance = balance * (targetRate / accountRate);
-
-        netWorth += convertedBalance;
-
-        if (cashTypesLower.includes(accountType.toLowerCase())) {
-          cash += convertedBalance;
+        const cashTypesLower = accountTypes.cash_types.map(t => t.toLowerCase());
+        const investmentTypesLower = accountTypes.investment_types.map(t => t.toLowerCase());
+        
+        if (cashTypesLower.includes(b.account_type.toLowerCase())) {
+          cash += val;
         }
-        if (investmentTypesLower.includes(accountType.toLowerCase())) {
-          investments += convertedBalance;
+        if (investmentTypesLower.includes(b.account_type.toLowerCase())) {
+          investments += val;
         }
       });
 
