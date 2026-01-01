@@ -80,6 +80,7 @@ const AccountDetailsPage: React.FC = () => {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [keepDialogOpen, setKeepDialogOpen] = useState(false);
 
   useEffect(() => {
     if (accountId) {
@@ -313,7 +314,25 @@ const AccountDetailsPage: React.FC = () => {
       if (accountId) {
         await loadAccountDetails(parseInt(accountId));
       }
-      handleCloseAddDialog();
+      
+      // If keep open is checked, preserve account and date, clear other fields
+      if (keepDialogOpen) {
+        const preservedDate = newTransactionFormData.transaction_date;
+        setNewTransactionFormData({
+          amount: '',
+          category: '',
+          transaction_date: preservedDate, // Keep the date
+          description: '',
+          merchant: '',
+          trip_id: '',
+          to_account_id: '',
+          exchange_rate: '',
+          fees: '',
+        });
+        // Keep dialog open, don't call handleCloseAddDialog
+      } else {
+        handleCloseAddDialog();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create transaction');
     } finally {
@@ -841,6 +860,8 @@ const AccountDetailsPage: React.FC = () => {
           onFormDataChange={(data) => setNewTransactionFormData({ ...newTransactionFormData, ...data })}
           saving={saving}
           colors={colors}
+          keepOpen={keepDialogOpen}
+          onKeepOpenChange={setKeepDialogOpen}
         />
 
         <AdjustBalanceDialog

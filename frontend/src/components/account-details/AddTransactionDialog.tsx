@@ -13,6 +13,8 @@ import {
   Stack,
   Box,
   Typography,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import { Account, Trip } from '../../services/api';
 import { ExpenseTrackingColors } from '../expenses/types';
@@ -42,6 +44,8 @@ interface AddTransactionDialogProps {
   onFormDataChange: (data: Partial<AddTransactionDialogProps['formData']>) => void;
   saving: boolean;
   colors: ExpenseTrackingColors;
+  keepOpen?: boolean;
+  onKeepOpenChange?: (keepOpen: boolean) => void;
 }
 
 export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
@@ -58,6 +62,8 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
   onFormDataChange,
   saving,
   colors,
+  keepOpen = false,
+  onKeepOpenChange,
 }) => {
   const toAccountId = formData.to_account_id ? parseInt(formData.to_account_id) : null;
   const toAccount = toAccountId ? allAccounts.find(acc => acc.account_id === toAccountId) : null;
@@ -391,7 +397,10 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
                     }}
                   >
                     <MenuItem value="">None</MenuItem>
-                    {(transactionType === 'expense' ? categories.expense_categories : categories.income_categories).map((cat) => (
+                    {(transactionType === 'expense' 
+                      ? [...categories.expense_categories].sort() 
+                      : [...categories.income_categories].sort()
+                    ).map((cat) => (
                       <MenuItem key={cat} value={cat}>
                         {cat}
                       </MenuItem>
@@ -490,35 +499,59 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
           />
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button
-          onClick={onClose}
-          sx={{
-            color: colors.card_subtext,
-            '&:hover': {
-              backgroundColor: hexToRgba(colors.card_subtext, 0.1),
-            },
-          }}
-        >
-          Cancel
-        </Button>
-        <Button
-          onClick={onCreate}
-          variant="contained"
-          disabled={saving}
-          sx={{
-            backgroundColor: colors.card_accent,
-            '&:hover': {
+      <DialogActions sx={{ px: 3, pb: 2, flexDirection: 'column', alignItems: 'stretch' }}>
+        {onKeepOpenChange && (
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={keepOpen}
+                onChange={(e) => onKeepOpenChange(e.target.checked)}
+                sx={{
+                  color: colors.card_accent,
+                  '&.Mui-checked': {
+                    color: colors.card_accent,
+                  },
+                }}
+              />
+            }
+            label={
+              <Typography sx={{ color: colors.card_text, fontSize: '0.9rem' }}>
+                Keep dialog open (preserves account and date)
+              </Typography>
+            }
+            sx={{ mb: 1 }}
+          />
+        )}
+        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+          <Button
+            onClick={onClose}
+            sx={{
+              color: colors.card_subtext,
+              '&:hover': {
+                backgroundColor: hexToRgba(colors.card_subtext, 0.1),
+              },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={onCreate}
+            variant="contained"
+            disabled={saving}
+            sx={{
               backgroundColor: colors.card_accent,
-              opacity: 0.9,
-            },
-            '&.Mui-disabled': {
-              backgroundColor: colors.card_subtext + '40',
-            },
-          }}
-        >
-          {saving ? 'Creating...' : 'Create'}
-        </Button>
+              '&:hover': {
+                backgroundColor: colors.card_accent,
+                opacity: 0.9,
+              },
+              '&.Mui-disabled': {
+                backgroundColor: colors.card_subtext + '40',
+              },
+            }}
+          >
+            {saving ? 'Creating...' : 'Create'}
+          </Button>
+        </Box>
       </DialogActions>
     </Dialog>
   );

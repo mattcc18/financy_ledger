@@ -504,7 +504,7 @@ const DataEntry: React.FC = () => {
                         }}
                       >
                         <MenuItem value="">None</MenuItem>
-                        {availableCategories.map((cat) => (
+                        {[...availableCategories].sort().map((cat) => (
                           <MenuItem key={cat} value={cat}>
                             {cat}
                           </MenuItem>
